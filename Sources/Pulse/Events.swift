@@ -5,83 +5,103 @@ public struct Breadcrumb: Codable, Equatable {
     public let category: String
     public let message: String
 }
+
 public final class BreadcrumbBuffer {
     private let lock = NSLock()
-    private let capacity: Int
-    private var slots: [Breadcrumb?]
-    private var next = 0
-    private var count = 0
+    private var buffer: BoundedBuffer<Breadcrumb>
     public init(capacity: Int = 64) {
-        precondition(capacity > 0 && capacity <= 4096)
-        self.capacity = capacity; self.slots = Array(repeating: nil, count: capacity)
+        precondition((1...4096).contains(capacity))
+        buffer = BoundedBuffer(capacity: capacity)
     }
-    /// Record labels, not request bodies, credentials or user content. Strings are bounded.
-    public func record(category: String, message: String, uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        let item = Breadcrumb(uptime: uptime, category: String(category.prefix(64)), message: String(message.prefix(256)))
-        lock.lock(); defer { lock.unlock() }
-        slots[next] = item; next = (next + 1) % capacity; count = min(count + 1, capacity)
+    /// Use static labels, never credentials, request bodies or user content.
+    public func record(category: String, message: String,
+                       uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard uptime.isFinite else { return }
+        let item = Breadcrumb(uptime: uptime, category: String(category.prefix(64)),
+                              message: String(message.prefix(256)))
+        lock.lock(); buffer.append(item); lock.unlock()
     }
     public func snapshot() -> [Breadcrumb] {
         lock.lock(); defer { lock.unlock() }
-        let first = (next - count + capacity) % capacity
-        return (0..<count).compactMap { slots[(first + $0) % capacity] }
+        return buffer.snapshot()
     }
 }
-public enum HangPhase: String, Codable { case detected, recovered }
-public struct HangEvent: Codable {
+
+public enum HangPhase: String, Codable { case detected, recovered, cancelled }
+
+public struct HangEvent: Codable, Identifiable {
     public let id: UUID
     public let phase: HangPhase
     public let startedAtUptime: TimeInterval
     public let observedAtUptime: TimeInterval
     public let duration: TimeInterval
+    /// Nil for an ongoing/cancelled event or a legacy upper-bound duration.
+    public let endedAtUptime: TimeInterval?
+    /// Frozen at detection; recovery never replaces the original breadcrumbs.
     public let breadcrumbs: [Breadcrumb]
+    public let evidence: EventEvidence?
+    public let durationBasis: String?
+
+    func updated(phase: HangPhase, time: TimeInterval, end: TimeInterval?,
+                 evidence: EventEvidence? = nil) -> HangEvent {
+        HangEvent(id: id, phase: phase, startedAtUptime: startedAtUptime,
+                  observedAtUptime: time, duration: max(0, (end ?? time) - startedAtUptime),
+                  endedAtUptime: end, breadcrumbs: breadcrumbs,
+                  evidence: evidence ?? self.evidence,
+                  durationBasis: end == nil ? "observation-upper-bound" : "observed-runloop-boundary")
+    }
+}
+
+struct BusyInterval: Equatable {
+    let start: TimeInterval
+    let end: TimeInterval
 }
 
 struct HangStateMachine {
     let threshold: TimeInterval
-    private var pending: (id: UUID, start: TimeInterval)?
+    private var pending: HangEvent?
     init(threshold: TimeInterval) { self.threshold = threshold }
     mutating func reset() { pending = nil }
+    mutating func cancel(time: TimeInterval) -> [HangEvent] {
+        defer { pending = nil }
+        return pending.map { [$0.updated(phase: .cancelled, time: time, end: nil)] } ?? []
+    }
     mutating func sample(time: TimeInterval, busySince: TimeInterval?, active: Bool,
                          breadcrumbs: [Breadcrumb]) -> [HangEvent] {
+        sample(time: time, busySince: busySince, completed: [], active: active,
+               breadcrumbs: { breadcrumbs }, evidence: { _ in nil })
+    }
+    /// Idle ticks never copy breadcrumbs or resource histories.
+    mutating func sample(time: TimeInterval, busySince: TimeInterval?,
+                         completed: [BusyInterval], active: Bool,
+                         breadcrumbs: () -> [Breadcrumb],
+                         evidence: (TimeInterval) -> EventEvidence?) -> [HangEvent] {
         guard active else { reset(); return [] }
-        var events: [HangEvent] = []
-        if let current = pending, busySince != current.start {
-            events.append(HangEvent(id: current.id, phase: .recovered, startedAtUptime: current.start,
-                                    observedAtUptime: time, duration: max(0, time - current.start), breadcrumbs: breadcrumbs))
+        var result: [HangEvent] = []
+        func make(_ start: TimeInterval, observed: TimeInterval) -> HangEvent {
+            HangEvent(id: UUID(), phase: .detected, startedAtUptime: start,
+                      observedAtUptime: observed, duration: max(0, observed - start),
+                      endedAtUptime: nil, breadcrumbs: breadcrumbs(), evidence: evidence(start),
+                      durationBasis: "observation-upper-bound")
+        }
+        if let current = pending, busySince != current.startedAtUptime {
+            let end = completed.first { $0.start == current.startedAtUptime }?.end
+            let enriched = current.evidence?.addingRecovery(evidence(current.startedAtUptime))
+            result.append(current.updated(phase: .recovered, time: time, end: end, evidence: enriched))
             pending = nil
         }
-        if pending == nil, let start = busySince, time - start >= threshold {
-            let id = UUID(); pending = (id, start)
-            events.append(HangEvent(id: id, phase: .detected, startedAtUptime: start,
-                                    observedAtUptime: time, duration: time - start, breadcrumbs: breadcrumbs))
+        let recoveredStart = result.first?.startedAtUptime
+        for interval in completed where interval.end - interval.start >= threshold {
+            guard interval.start != recoveredStart,
+                  interval.start != pending?.startedAtUptime else { continue }
+            let event = make(interval.start, observed: interval.end)
+            result.append(event.updated(phase: .recovered, time: time, end: interval.end))
         }
-        return events
-    }
-}
-
-/// Bounded, per-instance event archive. Call only on a background queue.
-public final class EventArchive {
-    private let url: URL
-    private let limit: Int
-    private let lock = NSLock()
-    public init(url: URL, limit: Int = 100) { precondition(limit > 0); self.url = url; self.limit = limit }
-    public func load() throws -> [HangEvent] {
-        lock.lock(); defer { lock.unlock() }
-        return try read()
-    }
-    private func read() throws -> [HangEvent] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return try JSONDecoder().decode([HangEvent].self, from: Data(contentsOf: url))
-    }
-    public func append(_ event: HangEvent) throws {
-        lock.lock(); defer { lock.unlock() }
-        var events = try read()
-        if let i = events.firstIndex(where: { $0.id == event.id }) { events[i] = event }
-        else { events.append(event) }
-        events = Array(events.suffix(limit))
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(events).write(to: url, options: .atomic)
+        if pending == nil, let start = busySince, time - start >= threshold {
+            let event = make(start, observed: time)
+            pending = event
+            result.append(event)
+        }
+        return result
     }
 }
