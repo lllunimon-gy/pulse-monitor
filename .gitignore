@@ -8,3 +8,5 @@ xcuserdata/
 .env
 *.log
 *.xcresult/
+__pycache__/
+artifacts/

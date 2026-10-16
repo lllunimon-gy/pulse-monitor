@@ -1,6 +1,25 @@
 #import "PulseObjC.h"
 #import <mach/mach.h>
 #import <sys/resource.h>
+#import <sys/sysctl.h>
+#import <TargetConditionals.h>
+
+NSString *PLHardwareModel(void) {
+#if TARGET_OS_SIMULATOR
+    return [@"simulator:" stringByAppendingString:NSProcessInfo.processInfo.environment[@"SIMULATOR_MODEL_IDENTIFIER"] ?: @"unknown"];
+#else
+    char model[256] = {0};
+    size_t size = sizeof(model);
+#if TARGET_OS_OSX
+    const char *key = "hw.model";
+#else
+    const char *key = "hw.machine";
+#endif
+    if (sysctlbyname(key, model, &size, NULL, 0) != 0) return @"unknown";
+    model[sizeof(model) - 1] = 0;
+    return [NSString stringWithUTF8String:model] ?: @"unknown";
+#endif
+}
 
 PLResourceReading PLReadResources(void) {
     PLResourceReading result = {0};

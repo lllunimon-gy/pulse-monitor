@@ -48,7 +48,9 @@ public struct HangEvent: Codable, Identifiable {
                   observedAtUptime: time, duration: max(0, (end ?? time) - startedAtUptime),
                   endedAtUptime: end, breadcrumbs: breadcrumbs,
                   evidence: evidence ?? self.evidence,
-                  durationBasis: end == nil ? "observation-upper-bound" : "observed-runloop-boundary")
+                  durationBasis: phase == .detected ? "ongoing-observation" :
+                    (phase == .cancelled ? "cancelled-observation" :
+                        (end == nil ? "observation-upper-bound" : "observed-runloop-boundary")))
     }
 }
 
@@ -82,7 +84,7 @@ struct HangStateMachine {
             HangEvent(id: UUID(), phase: .detected, startedAtUptime: start,
                       observedAtUptime: observed, duration: max(0, observed - start),
                       endedAtUptime: nil, breadcrumbs: breadcrumbs(), evidence: evidence(start),
-                      durationBasis: "observation-upper-bound")
+                      durationBasis: "ongoing-observation")
         }
         if let current = pending, busySince != current.startedAtUptime {
             let end = completed.first { $0.start == current.startedAtUptime }?.end

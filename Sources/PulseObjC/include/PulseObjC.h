@@ -33,4 +33,5 @@ typedef struct {
     int32_t cpuValid;
 } PLResourceReading;
 FOUNDATION_EXPORT PLResourceReading PLReadResources(void);
+FOUNDATION_EXPORT NSString *PLHardwareModel(void);
 NS_ASSUME_NONNULL_END

@@ -1,0 +1,16 @@
+{
+  "context": {
+    "device": "",
+    "os": "",
+    "configuration": "Release",
+    "scenario": "",
+    "monitoring": "",
+    "input_size": "",
+    "toolchain": ""
+  },
+  "metric": "",
+  "unit": "",
+  "commit": "",
+  "raw_artifact": "",
+  "samples": []
+}

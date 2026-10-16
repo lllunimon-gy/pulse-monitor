@@ -1,5 +1,6 @@
 import Foundation
 import os
+import PulseObjC
 
 public struct EventContext: Codable {
     public let sessionID: UUID
@@ -108,10 +109,10 @@ public final class EvidenceRecorder {
     private let build: String
     private let deviceModel: String
 
-    public init(sessionID: UUID = UUID(), deviceModel: String = "unspecified",
+    public init(sessionID: UUID = UUID(), deviceModel: String? = nil,
                 spans: SpanRecorder = SpanRecorder(), resources: ResourceMonitor = ResourceMonitor()) {
         self.sessionID = sessionID
-        self.deviceModel = String(deviceModel.prefix(128))
+        self.deviceModel = String((deviceModel ?? PLHardwareModel()).prefix(128))
         self.spans = spans
         self.resources = resources
         appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"

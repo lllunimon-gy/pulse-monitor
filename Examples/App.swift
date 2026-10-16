@@ -63,7 +63,7 @@ final class DemoModel: ObservableObject {
 
     init() {
         let sessionID = UUID()
-        evidence = EvidenceRecorder(sessionID: sessionID, deviceModel: UIDevice.current.model)
+        evidence = EvidenceRecorder(sessionID: sessionID)
         root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PulseExample")
         archive = EventArchive(url: root.appendingPathComponent("events.json"))
@@ -416,6 +416,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var showingShare = false
+    @State private var smokeStarted = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -426,7 +427,14 @@ struct ContentView: View {
             NavigationView { health.navigationTitle("资源与证据") }
                 .tabItem { Label("资源", systemImage: "chart.xyaxis.line") }.tag(2)
         }
-        .onAppear { model.firstAppearance() }
+        .onAppear {
+            model.firstAppearance()
+            if ProcessInfo.processInfo.arguments.contains("--pulse-smoke"), !smokeStarted {
+                smokeStarted = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.sleep() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { tab = 1 }
+            }
+        }
         .onChange(of: scenePhase) { model.lifecycle($0) }
         .onChange(of: tab) { model.setPage(["实验室", "事件", "资源"][$0]) }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
