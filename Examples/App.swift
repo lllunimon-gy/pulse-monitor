@@ -141,6 +141,23 @@ final class DemoModel: ObservableObject {
         startup = nil
         start()
         checkpoint()
+        recordSmokeState("first-appearance")
+    }
+
+    func recordSmokeState(_ phase: String) {
+        let record: [String: Any] = [
+            "phase": phase,
+            "applicationState": UIApplication.shared.applicationState.rawValue,
+            "argumentRequested": ProcessInfo.processInfo.arguments.contains("--pulse-smoke"),
+            "environmentRequested": ProcessInfo.processInfo.environment["PULSE_SMOKE"] == "1"
+        ]
+        io.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+                try data.write(to: self.root.appendingPathComponent("smoke-status.json"), options: .atomic)
+            } catch { DispatchQueue.main.async { self.status = "实验状态写入失败：\(error.localizedDescription)" } }
+        }
     }
 
     func setPage(_ value: String) {
@@ -237,9 +254,11 @@ final class DemoModel: ObservableObject {
 
     func sleep() {
         guard begin("main-sleep") else { return }
+        recordSmokeState("stall-scheduled")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             Thread.sleep(forTimeInterval: 0.6)
             self.finish("主线程等待完成，比较 CPU 与计算实验")
+            self.recordSmokeState("stall-finished")
         }
     }
 
@@ -444,6 +463,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             model.memoryWarning()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            beginSmokeIfReady()
+        }
         .onChange(of: model.shareURL) { showingShare = $0 != nil }
         .sheet(isPresented: $showingShare, onDismiss: { model.shareURL = nil }) {
             if let url = model.shareURL { ShareSheet(url: url) }
@@ -451,9 +473,15 @@ struct ContentView: View {
     }
 
     private func beginSmokeIfReady() {
-        guard ProcessInfo.processInfo.arguments.contains("--pulse-smoke"), !smokeStarted,
-              scenePhase == .active else { return }
+        let requested = ProcessInfo.processInfo.arguments.contains("--pulse-smoke") ||
+            ProcessInfo.processInfo.environment["PULSE_SMOKE"] == "1"
+        guard requested, !smokeStarted else { return }
+        guard UIApplication.shared.applicationState == .active else {
+            model.recordSmokeState("waiting-for-active")
+            return
+        }
         smokeStarted = true
+        model.recordSmokeState("experiment-requested")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.sleep() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { tab = 1 }
     }

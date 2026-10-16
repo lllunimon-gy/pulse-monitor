@@ -24,6 +24,8 @@ while time.monotonic() < deadline:
         pass
     time.sleep(0.5)
 print("Archive exists:", path.exists())
+state = path.parent / "smoke-status.json"
+print("Experiment state:", state.read_text() if state.exists() else "missing")
 print("Observed event phases:", [item.get("phase") for item in last_events])
 print("Observed breadcrumbs:", [[crumb.get("message") for crumb in item.get("breadcrumbs", [])]
                                 for item in last_events[-5:]])

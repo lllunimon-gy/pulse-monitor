@@ -44,7 +44,7 @@ jobs:
           sleep 3
           xcrun simctl io "$SIMULATOR_ID" screenshot artifacts/pulse-lab.png
           xcrun simctl terminate "$SIMULATOR_ID" dev.gy.pulse.example
-          xcrun simctl launch "$SIMULATOR_ID" dev.gy.pulse.example --pulse-smoke
+          SIMCTL_CHILD_PULSE_SMOKE=1 xcrun simctl launch "$SIMULATOR_ID" dev.gy.pulse.example --pulse-smoke
           APP_DATA=$(xcrun simctl get_app_container "$SIMULATOR_ID" dev.gy.pulse.example data)
           RESULT=0
           python3 Tools/check_simulator_event.py "$APP_DATA/Library/Application Support/PulseExample/events.json" || RESULT=$?
@@ -52,6 +52,9 @@ jobs:
           xcrun simctl io "$SIMULATOR_ID" screenshot artifacts/pulse-events.png
           if [ -f "$APP_DATA/Library/Application Support/PulseExample/events.json" ]; then
             cp "$APP_DATA/Library/Application Support/PulseExample/events.json" artifacts/events.json
+          fi
+          if [ -f "$APP_DATA/Library/Application Support/PulseExample/smoke-status.json" ]; then
+            cp "$APP_DATA/Library/Application Support/PulseExample/smoke-status.json" artifacts/smoke-status.json
           fi
           exit "$RESULT"
       - name: Upload simulator evidence
