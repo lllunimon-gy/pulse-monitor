@@ -29,8 +29,8 @@ typedef struct {
     double uptime;
     uint64_t footprintBytes;
     double cpuSeconds;
-    BOOL memoryValid;
-    BOOL cpuValid;
+    int32_t memoryValid;
+    int32_t cpuValid;
 } PLResourceReading;
 FOUNDATION_EXPORT PLResourceReading PLReadResources(void);
 NS_ASSUME_NONNULL_END

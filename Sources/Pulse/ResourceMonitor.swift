@@ -80,7 +80,7 @@ public final class ResourceMonitor {
         let reading = PLReadResources()
         lock.lock(); defer { lock.unlock() }
         guard active, timer != nil, run == generation else { return }
-        let percent = cpu.sample(time: reading.uptime, cpu: reading.cpuValid ? reading.cpuSeconds : nil)
+        let percent = cpu.sample(time: reading.uptime, cpu: reading.cpuValid != 0 ? reading.cpuSeconds : nil)
         let thermal: String
         switch ProcessInfo.processInfo.thermalState {
         case .nominal: thermal = "nominal"
@@ -90,7 +90,7 @@ public final class ResourceMonitor {
         @unknown default: thermal = "unknown"
         }
         buffer.append(ResourceSample(uptime: reading.uptime,
-                                     footprintBytes: reading.memoryValid ? reading.footprintBytes : nil,
+                                     footprintBytes: reading.memoryValid != 0 ? reading.footprintBytes : nil,
                                      cpuPercent: percent, thermalState: thermal))
     }
 
