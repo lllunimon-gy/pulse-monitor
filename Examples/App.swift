@@ -71,7 +71,7 @@ final class DemoModel: ObservableObject {
         startup = evidence.spans.begin("example-init-to-first-appearance")
         evidence.setPage(page)
         let batch = batch, consumerDelay = consumerDelay
-        monitor = HangMonitor(evidence: evidence, deliveryCapacity: 2) { [weak self] event in
+        monitor = HangMonitor(breadcrumbs: crumbs, evidence: evidence, deliveryCapacity: 2) { [weak self] event in
             if consumerDelay.read() { Thread.sleep(forTimeInterval: 2) }
             batch.record(event)
             DispatchQueue.main.async {
@@ -93,7 +93,7 @@ final class DemoModel: ObservableObject {
                 self.session = try SessionRecorder(url: self.root.appendingPathComponent("session.json"), id: sessionID)
                 let text = self.session?.previous == nil ? "首次会话" :
                     "上次：\(self.session?.previous?.state.rawValue ?? "unknown")；退出原因 unknown"
-                let old = try self.archive.load().sorted { $0.observedAtUptime > $1.observedAtUptime }
+                let old = Array(try self.archive.load().reversed())
                 DispatchQueue.main.async {
                     self.sessionText = text
                     // A fresh process uptime cannot order previous-session records against this session.
