@@ -1,6 +1,7 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,8 +11,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    runs-on: macos-latest
-    timeout-minutes: 20
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -20,9 +23,56 @@ jobs:
           xcodebuild -version
       - name: Unit and boundary tests
         run: swift test --enable-code-coverage
+      - name: Regression tooling tests
+        run: python3 -m unittest discover -s Tools -p 'test_*.py' -v
       - name: Build runnable example for iOS Simulator
         run: >-
           xcodebuild -project Examples/PulseExample.xcodeproj
-          -scheme PulseExample -sdk iphonesimulator
+          -scheme PulseExample -configuration Debug -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+      - name: Simulator launch, event persistence and screenshots
+        timeout-minutes: 12
+        run: |
+          mkdir -p artifacts
+          SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; data=json.load(sys.stdin); print(next(d["udid"] for group in data["devices"].values() for d in group if d["name"].startswith("iPhone")))')
+          xcrun simctl boot "$SIMULATOR_ID"
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl status_bar "$SIMULATOR_ID" override --time 9:41 --batteryState charged --batteryLevel 100
+          xcrun simctl install "$SIMULATOR_ID" DerivedData/Build/Products/Debug-iphonesimulator/PulseExample.app
+          xcrun simctl launch "$SIMULATOR_ID" dev.gy.pulse.example
+          sleep 3
+          xcrun simctl io "$SIMULATOR_ID" screenshot artifacts/pulse-lab.png
+          xcrun simctl terminate "$SIMULATOR_ID" dev.gy.pulse.example
+          SIMCTL_CHILD_PULSE_SMOKE=1 xcrun simctl launch "$SIMULATOR_ID" dev.gy.pulse.example --pulse-smoke
+          APP_DATA=$(xcrun simctl get_app_container "$SIMULATOR_ID" dev.gy.pulse.example data)
+          RESULT=0
+          python3 Tools/check_simulator_event.py "$APP_DATA/Library/Application Support/PulseExample/events.json" || RESULT=$?
+          sleep 2
+          xcrun simctl io "$SIMULATOR_ID" screenshot artifacts/pulse-events.png
+          if [ -f "$APP_DATA/Library/Application Support/PulseExample/events.json" ]; then
+            cp "$APP_DATA/Library/Application Support/PulseExample/events.json" artifacts/events.json
+          fi
+          if [ -f "$APP_DATA/Library/Application Support/PulseExample/smoke-status.json" ]; then
+            cp "$APP_DATA/Library/Application Support/PulseExample/smoke-status.json" artifacts/smoke-status.json
+          fi
+          exit "$RESULT"
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-evidence
+          path: artifacts/
+          if-no-files-found: ignore
+  latest-sdk:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Latest SDK compatibility
+        run: |
+          xcodebuild -version
+          swift build
+          xcodebuild -project Examples/PulseExample.xcodeproj -scheme PulseExample \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
