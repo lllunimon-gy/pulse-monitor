@@ -6,10 +6,12 @@ import time
 from pathlib import Path
 
 path = Path(sys.argv[1])
-deadline = time.monotonic() + 30
+deadline = time.monotonic() + 90
+last_events = []
 while time.monotonic() < deadline:
     try:
         events = json.loads(path.read_text())
+        last_events = events
         for event in events:
             if (event["phase"] == "recovered"
                     and event.get("endedAtUptime") is not None
@@ -21,4 +23,8 @@ while time.monotonic() < deadline:
     except (OSError, json.JSONDecodeError):
         pass
     time.sleep(0.5)
-raise SystemExit("No recovered main-sleep event persisted within 30 seconds")
+print("Archive exists:", path.exists())
+print("Observed event phases:", [item.get("phase") for item in last_events])
+print("Observed breadcrumbs:", [[crumb.get("message") for crumb in item.get("breadcrumbs", [])]
+                                for item in last_events[-5:]])
+raise SystemExit("No recovered main-sleep event persisted within 90 seconds")

@@ -4,6 +4,10 @@ CI 在 macOS 上执行 Swift Package 单元/边界/实际 RunLoop 测试，运�
 构建 iOS Simulator 示例，再安装启动并保存截图。模拟器检查用于编译、启动和布局，
 不代表真机性能、低内存或能耗验收完成。
 
+运行检查固定在 macOS 15 / Xcode 16.4；另一任务在 macos-latest 编译包与 Release 示例，
+同时覆盖可复现的运行基线和最新 SDK。自动卡顿实验在 scene 进入 active 后触发，
+失败时也保留截图及示例事件档案。功能分支通过 PR 验证，避免 push/PR 重复启动模拟器。
+
 ## 自动化覆盖
 
 - 阈值、去重、恢复 ID、空闲与生命周期。

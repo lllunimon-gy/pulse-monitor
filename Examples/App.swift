@@ -434,13 +434,12 @@ struct ContentView: View {
         }
         .onAppear {
             model.firstAppearance()
-            if ProcessInfo.processInfo.arguments.contains("--pulse-smoke"), !smokeStarted {
-                smokeStarted = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.sleep() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { tab = 1 }
-            }
+            beginSmokeIfReady()
         }
-        .onChange(of: scenePhase) { model.lifecycle($0) }
+        .onChange(of: scenePhase) {
+            model.lifecycle($0)
+            beginSmokeIfReady()
+        }
         .onChange(of: tab) { model.setPage(["实验室", "事件", "资源"][$0]) }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             model.memoryWarning()
@@ -449,6 +448,14 @@ struct ContentView: View {
         .sheet(isPresented: $showingShare, onDismiss: { model.shareURL = nil }) {
             if let url = model.shareURL { ShareSheet(url: url) }
         }
+    }
+
+    private func beginSmokeIfReady() {
+        guard ProcessInfo.processInfo.arguments.contains("--pulse-smoke"), !smokeStarted,
+              scenePhase == .active else { return }
+        smokeStarted = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.sleep() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { tab = 1 }
     }
 
     private var lab: some View {
