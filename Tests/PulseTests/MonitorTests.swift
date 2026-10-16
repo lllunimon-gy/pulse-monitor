@@ -58,4 +58,17 @@ final class MonitorTests: XCTestCase {
         monitor.start(); monitor.start(); monitor.setActive(false); monitor.setActive(true)
         monitor.stop(); monitor.stop(); monitor.start(); monitor.stop()
     }
+    func testDetectsAnActualMainRunLoopBlock() {
+        XCTAssertTrue(Thread.isMainThread)
+        let detected = expectation(description: "main run loop detected")
+        let monitor = HangMonitor(threshold: 0.1, interval: 0.02) { event in
+            if event.phase == .detected { detected.fulfill() }
+        }
+        monitor.start()
+        defer { monitor.stop() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Thread.sleep(forTimeInterval: 0.35)
+        }
+        wait(for: [detected], timeout: 5)
+    }
 }
