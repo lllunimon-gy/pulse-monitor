@@ -2,6 +2,15 @@ import XCTest
 @testable import Pulse
 
 final class DiagnosticsTests: XCTestCase {
+    func testLabelsBoundUTF8BytesWithoutBreakingScalarEncoding() {
+        let label = "a" + String(repeating: "\u{301}", count: 10000)
+        let buffer = BreadcrumbBuffer()
+        buffer.record(category: label, message: String(repeating: "诊断", count: 1000))
+        let crumb = buffer.snapshot()[0]
+        XCTAssertLessThanOrEqual(crumb.category.utf8.count, 64)
+        XCTAssertLessThanOrEqual(crumb.message.utf8.count, 256)
+        XCTAssertFalse(crumb.message.contains("\u{fffd}"))
+    }
     private func event(start: Double = 1, end: Double = 2) -> HangEvent {
         var engine = HangStateMachine(threshold: 0.25)
         return engine.sample(time: end, busySince: nil, completed: [.init(start: start, end: end)],
@@ -120,6 +129,59 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertEqual(delivery.statistics.invalidatedEvents, 1)
         queue.resume()
         queue.sync {}
+    }
+
+    func testRejectedDetectionCannotReappearAsRecoveryAfterCapacityFrees() {
+        let queue = DispatchQueue(label: "test.rejected-epoch")
+        queue.suspend()
+        let admitted = event()
+        let rejected = event(start: 3, end: 4)
+        let delivery = EventDelivery(capacity: 1, queue: queue) { value in
+            XCTAssertEqual(value.id, admitted.id)
+        }
+        delivery.submit([admitted, rejected.updated(phase: .detected, time: 3.3, end: nil)])
+        queue.resume()
+        queue.sync {}
+        delivery.submit([rejected])
+        queue.sync {}
+        XCTAssertEqual(delivery.statistics.droppedEvents, 1)
+        XCTAssertEqual(delivery.statistics.retainedEvents, 0)
+    }
+
+    func testOngoingAndFallbackDurationsHaveDifferentPrecisionLabels() {
+        var engine = HangStateMachine(threshold: 0.25)
+        let detected = engine.sample(time: 1.3, busySince: 1, active: true, breadcrumbs: [])[0]
+        XCTAssertEqual(detected.durationBasis, "ongoing-observation")
+        let fallback = engine.sample(time: 2, busySince: nil, active: true, breadcrumbs: [])[0]
+        XCTAssertEqual(fallback.durationBasis, "observation-upper-bound")
+        XCTAssertNil(fallback.endedAtUptime)
+    }
+
+    func testRecoveryKeepsInitialContextAndCompletesSpans() {
+        let recorder = EvidenceRecorder(deviceModel: "test-device")
+        recorder.setPage("origin-page")
+        let token = recorder.spans.begin("business", uptime: 1)
+        let initial = recorder.snapshot(since: 1)
+        recorder.setPage("later-page")
+        recorder.spans.end(token, uptime: 2)
+        let final = initial.addingRecovery(recorder.snapshot(since: 1))
+        XCTAssertEqual(final.context.page, "origin-page")
+        XCTAssertEqual(final.context.sessionID, initial.context.sessionID)
+        XCTAssertEqual(final.spans.first?.end, 2)
+        XCTAssertEqual(final.spans.count, 1)
+    }
+
+    func testArchiveAgeEvictionKeepsLegacyRecordsWithoutWallClock() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let context = EventContext(sessionID: UUID(), appVersion: "test", build: "1", systemVersion: "test",
+                                   deviceModel: "test", page: "test", active: true, capturedAt: Date(timeIntervalSince1970: 0))
+        let evidence = EventEvidence(source: "test", context: context, spans: [], resources: [])
+        let dated = event().updated(phase: .recovered, time: 2, end: 2, evidence: evidence)
+        let legacy = event(start: 3, end: 4)
+        let archive = EventArchive(url: url, maxAge: 10)
+        try archive.append(contentsOf: [dated, legacy], now: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(try archive.load().map(\.id), [legacy.id])
     }
 
     func testLegacyArchiveDecodesWithUnknownPrecision() throws {

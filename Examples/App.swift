@@ -181,7 +181,8 @@ final class DemoModel: ObservableObject {
 
     private func refresh() {
         let memory = evidence.resources.memorySummary()
-        memoryText = "窗口峰值 \(megabytes(memory.peakBytes)) · 警告 \(memory.warnings)"
+        let growth = memory.growthBytes.map { String(format: "%+.1f MiB", Double($0) / 1_048_576) } ?? "—"
+        memoryText = "窗口峰值 \(megabytes(memory.peakBytes)) · 变化 \(growth) · 警告 \(memory.warnings)"
         if let sample = evidence.resources.snapshot().last {
             cpuText = sample.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "等待差分"
         }
@@ -373,13 +374,17 @@ final class DemoModel: ObservableObject {
         let frameSamples = frames.snapshot(), summary = frames.summary()
         let delivery = monitor?.deliveryStatistics
         let lost = monitor?.droppedProbeIntervals ?? 0
+        let droppedSystem = metricKit?.droppedPayloads ?? 0
+        let droppedSpans = evidence.spans.droppedSpans
         io.async {
             do {
                 try self.batch.flush(to: self.archive)
                 let bundle = DiagnosticBundle(events: try self.archive.load(), spans: spans, resources: resources,
                     frames: frameSamples, frameSummary: summary, session: self.session?.current,
                     previousSession: self.session?.previous, systemPayloads: try self.systemArchive.load(),
-                    delivery: delivery, droppedProbeIntervals: lost)
+                    delivery: delivery, droppedProbeIntervals: lost,
+                    droppedBatchEvents: self.batch.droppedEvents,
+                    droppedSystemPayloads: droppedSystem, droppedSpans: droppedSpans)
                 let file = self.root.appendingPathComponent("Pulse-diagnostics.json")
                 try bundle.write(to: file)
                 DispatchQueue.main.async { self.shareURL = file; self.exporting = false }

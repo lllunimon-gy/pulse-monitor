@@ -17,8 +17,8 @@ public final class BreadcrumbBuffer {
     public func record(category: String, message: String,
                        uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         guard uptime.isFinite else { return }
-        let item = Breadcrumb(uptime: uptime, category: String(category.prefix(64)),
-                              message: String(message.prefix(256)))
+        let item = Breadcrumb(uptime: uptime, category: boundedLabel(category, bytes: 64),
+                              message: boundedLabel(message, bytes: 256))
         lock.lock(); buffer.append(item); lock.unlock()
     }
     public func snapshot() -> [Breadcrumb] {

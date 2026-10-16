@@ -48,7 +48,7 @@ public final class SpanRecorder {
         lock.lock(); defer { lock.unlock() }
         guard active.count < activeLimit else { dropped += 1; return nil }
         let id = UUID()
-        let label = String(String(describing: name).prefix(128))
+        let label = boundedLabel(String(describing: name), bytes: 128)
         let span = PerformanceSpan(id: id, parentID: parentID, name: label, start: uptime, end: nil)
         let state = signposter.beginInterval("PulseSpan", id: signposter.makeSignpostID(), "\(label, privacy: .public)")
         active[id] = Active(span: span, state: state)
@@ -112,7 +112,7 @@ public final class EvidenceRecorder {
     public init(sessionID: UUID = UUID(), deviceModel: String? = nil,
                 spans: SpanRecorder = SpanRecorder(), resources: ResourceMonitor = ResourceMonitor()) {
         self.sessionID = sessionID
-        self.deviceModel = String((deviceModel ?? PLHardwareModel()).prefix(128))
+        self.deviceModel = boundedLabel(deviceModel ?? PLHardwareModel(), bytes: 128)
         self.spans = spans
         self.resources = resources
         appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
@@ -120,7 +120,7 @@ public final class EvidenceRecorder {
     }
 
     public func setPage(_ label: String) {
-        lock.lock(); page = String(label.prefix(128)); lock.unlock()
+        lock.lock(); page = boundedLabel(label, bytes: 128); lock.unlock()
     }
 
     public func setActive(_ value: Bool) {

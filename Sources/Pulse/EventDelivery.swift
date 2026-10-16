@@ -31,6 +31,7 @@ final class EventDelivery {
     }
 
     func submit(_ events: [HangEvent]) {
+        guard !events.isEmpty else { return }
         lock.lock()
         for event in events {
             if event.id == rejectedOngoing {

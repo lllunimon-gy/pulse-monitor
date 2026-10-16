@@ -32,6 +32,7 @@ observedAtUptime 是检测队列的时间，不是 UI 更新时间。
 ResourceMonitor 独立 start/stop；HangMonitor 会同步 EvidenceRecorder 的活跃状态。
 若只使用资源监控，宿主自行调用 setActive。不要让多个 monitor 争用同一 EvidenceRecorder 的生命周期。
 Span 的名称是 StaticString；页面/Breadcrumb 等动态字符串仍需由接入方保证没有敏感信息。
+标签按 UTF-8 字节截断并保留完整编码：category 64、message 256、页面/Span/对象名称 128 字节。
 不默认记录 URL、请求体、用户 ID 或 token。
 
 ## 批量落盘

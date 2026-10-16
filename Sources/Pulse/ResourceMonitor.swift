@@ -137,7 +137,7 @@ public final class ObjectLifetimeTracker {
         guard delay.isFinite, delay >= 0, uptime.isFinite else { return false }
         lock.lock(); defer { lock.unlock() }
         guard entries.count < capacity else { return false }
-        entries.append(Entry(object: object, label: String(label.prefix(128)), deadline: uptime + delay))
+        entries.append(Entry(object: object, label: boundedLabel(label, bytes: 128), deadline: uptime + delay))
         return true
     }
 

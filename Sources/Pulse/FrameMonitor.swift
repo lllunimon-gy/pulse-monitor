@@ -72,7 +72,7 @@ public final class FrameMonitor {
     public func start(page: String) {
         precondition(Thread.isMainThread)
         stop()
-        self.page = String(page.prefix(128))
+        self.page = boundedLabel(page, bytes: 128)
         accumulator.reset()
         let link = CADisplayLink(target: target, selector: #selector(DisplayLinkTarget.tick(_:)))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30,

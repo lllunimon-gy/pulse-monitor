@@ -42,7 +42,7 @@ public final class SessionRecorder {
                            memoryWarning: Bool = false, now: Date = Date()) throws {
         var next = current
         next.updatedAt = now; next.state = state
-        next.lastPage = String(page.prefix(128))
+        next.lastPage = boundedLabel(page, bytes: 128)
         next.lastFootprintBytes = footprintBytes
         if memoryWarning { next.memoryWarnings += 1 }
         try persist(next)
